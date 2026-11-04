@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Credenciais da API PHP (nunca versionar)
+server/api/config/config.php

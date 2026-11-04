@@ -6,6 +6,10 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Usado para adicionar fotos aos produtos anunciados.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Usado para fotografar produtos anunciados.</string>
 	<key>CFBundleDisplayName</key>
 	<string>Marketplace Rural</string>
 	<key>CFBundleExecutable</key>

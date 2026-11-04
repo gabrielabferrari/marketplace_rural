@@ -14,8 +14,8 @@
 return [
     'db_host'     => getenv('MR_DB_HOST') ?: 'localhost',
     'db_name'     => getenv('MR_DB_NAME') ?: 'buzzcode_marketplace_rural',
-    'db_user'     => getenv('MR_DB_USER') ?: '',
-    'db_pass'     => getenv('MR_DB_PASS') ?: '',
+    'db_user'     => getenv('MR_DB_USER') ?: 'buzzcode_ADM',
+    'db_pass'     => getenv('MR_DB_PASS') ?: 'yh5{Gs6Nsy6DgQYn',
 
     // Chave secreta para assinar tokens. Gere com:
     //   php -r "echo bin2hex(random_bytes(32));"

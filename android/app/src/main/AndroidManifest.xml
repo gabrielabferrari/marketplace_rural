@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Necessária para acessar a API em builds de release. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="marketplace_rural"
+        android:label="Marketplace Rural"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

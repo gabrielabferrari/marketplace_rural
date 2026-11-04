@@ -1,5 +1,5 @@
 name: marketplace_rural
-description: "A new Flutter project."
+description: "Marketplace Rural — conecta produtores rurais e compradores."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -30,8 +30,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   shared_preferences: ^2.5.3
   http: ^1.5.0
+  provider: ^6.1.5
+  intl: ^0.20.2
+  image_picker: ^1.2.3
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
