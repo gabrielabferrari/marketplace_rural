@@ -1,0 +1,14 @@
+# Repassa o cabeçalho Authorization ao PHP (necessário em hospedagens com CGI/FastCGI).
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
+Options -Indexes
+
+# Bloqueia acesso direto às pastas internas.
+<IfModule mod_rewrite.c>
+    RewriteRule ^(config|lib)(/|$) - [F,L]
+</IfModule>
