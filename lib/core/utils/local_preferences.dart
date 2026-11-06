@@ -13,7 +13,7 @@ class LocalPreferences {
       LocalPreferences(await SharedPreferences.getInstance());
 
   static const _kThemeMode = 'pref_theme_mode';
-  static const _kToken = 'session_token';
+  static const _kSessionCookie = 'session_cookie';
   static const _kUser = 'session_user';
   static const _kNotifications = 'pref_notifications';
   static const _kRegion = 'pref_region';
@@ -23,11 +23,12 @@ class LocalPreferences {
   Future<void> setThemeMode(String value) =>
       _prefs.setString(_kThemeMode, value);
 
-  String? get token => _prefs.getString(_kToken);
+  /// Cookie de sessão do servidor (`PHPSESSID=...`).
+  String? get sessionCookie => _prefs.getString(_kSessionCookie);
   String? get cachedUser => _prefs.getString(_kUser);
 
-  Future<void> saveSession(String token, String userJson) async {
-    await _prefs.setString(_kToken, token);
+  Future<void> saveSession(String sessionCookie, String userJson) async {
+    await _prefs.setString(_kSessionCookie, sessionCookie);
     await _prefs.setString(_kUser, userJson);
   }
 
@@ -35,7 +36,7 @@ class LocalPreferences {
       _prefs.setString(_kUser, userJson);
 
   Future<void> clearSession() async {
-    await _prefs.remove(_kToken);
+    await _prefs.remove(_kSessionCookie);
     await _prefs.remove(_kUser);
   }
 

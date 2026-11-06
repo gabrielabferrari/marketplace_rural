@@ -275,12 +275,14 @@ class ProductGrid extends StatelessWidget {
     return SliverLayoutBuilder(builder: (context, constraints) {
       final width = constraints.crossAxisExtent;
       final columns = width >= 1000 ? 4 : width >= 680 ? 3 : 2;
+      // A altura do card cresce com o tamanho do texto do sistema (acessibilidade).
+      final textScale = (MediaQuery.textScalerOf(context).scale(14) / 14).clamp(1.0, 2.0);
       return SliverGrid(
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: columns,
           mainAxisSpacing: 12,
           crossAxisSpacing: 12,
-          mainAxisExtent: (width / columns) * 0.75 + 116,
+          mainAxisExtent: (width / columns) * 0.75 + 128 + 130 * (textScale - 1),
         ),
         delegate: SliverChildBuilderDelegate(
           (context, i) => ProductCard(product: products[i], onTap: () => onTap(products[i])),

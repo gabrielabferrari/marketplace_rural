@@ -4,10 +4,11 @@ import 'json_utils.dart';
 import 'user.dart';
 
 enum OrderStatus {
+  // apiValue = valor da coluna `pedidos.status` do banco (usado nas requisições).
   recebido('recebido', 'Recebido', Icons.assignment_rounded),
-  emPreparacao('em_preparacao', 'Em preparação', Icons.inventory_2_rounded),
+  emPreparacao('preparo', 'Em preparação', Icons.inventory_2_rounded),
   aCaminho('a_caminho', 'A caminho', Icons.local_shipping_rounded),
-  concluido('concluido', 'Concluído', Icons.check_circle_rounded),
+  concluido('entregue', 'Concluído', Icons.check_circle_rounded),
   cancelado('cancelado', 'Cancelado', Icons.cancel_rounded);
 
   const OrderStatus(this.apiValue, this.label, this.icon);
@@ -17,8 +18,11 @@ enum OrderStatus {
   final IconData icon;
 
   /// Etapas exibidas na linha do tempo (cancelado é tratado à parte).
+  /// "A caminho" não existe no banco, então nunca é alcançada.
   static const flow = [recebido, emPreparacao, aCaminho, concluido];
 
+  /// Aceita o valor do banco (`preparo`, `entregue`), o nome do item e
+  /// `negociacao`, que o app exibe como "Recebido".
   static OrderStatus parse(String? value) {
     final v = value?.toLowerCase().trim().replaceAll(' ', '_');
     for (final s in values) {
@@ -37,8 +41,8 @@ enum OrderStatus {
 abstract final class OrderRules {
   static List<OrderStatus> allowedTransitions(OrderStatus current, UserRole role) {
     switch (role) {
-      // Espelha TRANSICOES_PEDIDO em server/api/lib/dominio.php. O banco não tem
-      // a etapa "a caminho", então ela não é oferecida.
+      // Espelha as transições de backend/lib/api.php (transicoes_permitidas).
+      // O banco não tem a etapa "a caminho", então ela não é oferecida.
       case UserRole.produtor:
         return switch (current) {
           OrderStatus.recebido => [OrderStatus.emPreparacao, OrderStatus.cancelado],
@@ -149,18 +153,20 @@ class Order {
     return step == OrderStatus.recebido ? criadoEm : null;
   }
 
-  factory Order.fromJson(Map<String, dynamic> json) => Order(
-        id: Json.string(json['id']),
-        status: OrderStatus.parse(Json.stringOrNull(json['status'])),
-        itens: Json.list(json['itens']).map(OrderItem.fromJson).toList(),
-        compradorId: Json.stringOrNull(json['comprador_id']),
-        compradorNome: Json.stringOrNull(json['comprador_nome']),
-        produtorId: Json.stringOrNull(json['produtor_id']),
-        produtorNome: Json.stringOrNull(json['produtor_nome']),
-        total: Json.numberOrNull(json['total']),
-        taxaEntrega: Json.numberOrNull(json['taxa_entrega']),
-        enderecoEntrega: Json.stringOrNull(json['endereco_entrega']),
-        criadoEm: Json.date(json['criado_em']),
-        historico: Json.list(json['historico']).map(OrderEvent.fromJson).toList(),
-      );
+  /// Formato de `pedidos/listar.php`: `id, status, total, data, papel,
+  /// contraparte, itens[nome, quantidade, preco_unitario]`. O servidor já
+  /// informa o papel do usuário; a contraparte é o outro lado do pedido.
+  factory Order.fromJson(Map<String, dynamic> json) {
+    final vendedor = Json.stringOrNull(json['papel']) == 'vendedor';
+    final contraparte = Json.stringOrNull(json['contraparte']);
+    return Order(
+      id: Json.string(json['id']),
+      status: OrderStatus.parse(Json.stringOrNull(json['status'])),
+      itens: Json.list(json['itens']).map(OrderItem.fromJson).toList(),
+      compradorNome: vendedor ? contraparte : null,
+      produtorNome: vendedor ? null : contraparte,
+      total: Json.numberOrNull(json['total']),
+      criadoEm: Json.date(json['data']),
+    );
+  }
 }

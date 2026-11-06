@@ -6,24 +6,32 @@ import '../models/json_utils.dart';
 import '../models/order.dart';
 import '../models/user.dart';
 
+/// Pedidos no backend do site (`backend/pedidos/`).
+///
+/// O servidor filtra pela sessão: comprador vê os pedidos que fez; produtor
+/// vê os que recebeu. Não há rota de detalhe, então o detalhe sai da lista.
 class OrderRepository {
   OrderRepository(this._api, this._currentUser);
 
   final ApiClient _api;
   final AppUser? Function() _currentUser;
 
-  /// Lista os pedidos do usuário logado. O servidor filtra pelo token:
-  /// comprador vê os que fez; produtor vê os que recebeu.
   Future<List<Order>> list({OrderStatus? status}) async {
-    final data = await _api.get(Endpoints.orders, query: {'status': status?.apiValue});
-    return Json.list(data).map(Order.fromJson).toList();
+    final data = await _api.get(Endpoints.orders);
+    final orders = Json.list(data['pedidos']).map(Order.fromJson).toList();
+    if (status == null) return orders;
+    return orders.where((o) => o.status == status).toList();
   }
 
   Future<Order> detail(String id) async {
-    final data = Json.map(await _api.get(Endpoints.orderDetail, query: {'id': id}));
-    return Order.fromJson(Json.map(data['pedido'] ?? data));
+    for (final order in await list()) {
+      if (order.id == id) return order;
+    }
+    throw const ApiException(ApiErrorType.notFound, 'Pedido não encontrado.');
   }
 
+  /// Cria um pedido de um produto. O backend baixa o estoque na criação.
+  /// [negociacaoId] e [observacao] não são suportados pelo backend do site.
   Future<Order> create({
     required String produtoId,
     required double quantidade,
@@ -31,14 +39,11 @@ class OrderRepository {
     String? observacao,
   }) async {
     Permissions.ensure(_currentUser(), Feature.placeOrder);
-    final data = Json.map(await _api.post(Endpoints.orderCreate, body: {
-      'itens': [
-        {'produto_id': produtoId, 'quantidade': quantidade},
-      ],
-      'negociacao_id': ?negociacaoId,
-      if (observacao != null && observacao.trim().isNotEmpty) 'observacao': observacao.trim(),
-    }));
-    return Order.fromJson(Json.map(data['pedido'] ?? data));
+    final data = await _api.post(Endpoints.orderCreate, body: {
+      'anuncio_id': produtoId,
+      'quantidade': quantidade.round(),
+    });
+    return detail(Json.string(data['pedido_id']));
   }
 
   Future<Order> updateStatus(Order order, OrderStatus target) async {
@@ -50,10 +55,10 @@ class OrderRepository {
       throw const ApiException(ApiErrorType.forbidden,
           'Esta alteração de status não é permitida para sua conta.');
     }
-    final data = Json.map(await _api.post(Endpoints.orderUpdate, body: {
+    await _api.post(Endpoints.orderUpdate, body: {
       'id': order.id,
       'status': target.apiValue,
-    }));
-    return Order.fromJson(Json.map(data['pedido'] ?? data));
+    });
+    return detail(order.id);
   }
 }

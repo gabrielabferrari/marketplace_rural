@@ -22,15 +22,15 @@ class UploadFile {
 
 /// Cliente HTTP único do aplicativo.
 ///
-/// Responsabilidades:
-/// * montar URLs a partir de [AppConfig.apiBaseUrl];
-/// * enviar o token Bearer da sessão;
-/// * aplicar timeout;
-/// * converter respostas em JSON e erros em [ApiException].
+/// O backend do site autentica por sessão PHP: o login devolve o cookie
+/// `PHPSESSID`, que o app guarda e reenvia em todas as requisições.
 ///
-/// Contrato de resposta esperado da API PHP:
-/// `{ "sucesso": true, "dados": ... }` ou
-/// `{ "sucesso": false, "mensagem": "..." }`.
+/// Formatos do backend (mesmos do site):
+/// * entrada: campos de formulário (`application/x-www-form-urlencoded`) ou
+///   multipart quando há arquivo;
+/// * saída: JSON com `sucesso` e os dados no próprio objeto
+///   (ex.: `{ "sucesso": true, "produtos": [...] }`); em erro,
+///   `{ "sucesso": false, "mensagem": "..." }`.
 class ApiClient {
   ApiClient({
     http.Client? httpClient,
@@ -46,13 +46,16 @@ class ApiClient {
   final String _baseUrl;
   final Duration timeout;
 
-  String? _token;
+  String? _sessionCookie;
 
-  /// Chamado quando o servidor rejeita o token (HTTP 401).
+  /// Chamado quando o servidor rejeita a sessão (HTTP 401).
   VoidCallback? onUnauthorized;
 
-  set token(String? value) => _token = value;
-  bool get hasToken => _token != null && _token!.isNotEmpty;
+  /// Cookie de sessão no formato `PHPSESSID=valor`, ou `null` sem sessão.
+  String? get sessionCookie => _sessionCookie;
+  set sessionCookie(String? value) =>
+      _sessionCookie = (value == null || value.isEmpty) ? null : value;
+  bool get hasSession => _sessionCookie != null;
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
     final cleanQuery = <String, String>{};
@@ -66,38 +69,38 @@ class ApiClient {
         .replace(queryParameters: cleanQuery.isEmpty ? null : cleanQuery);
   }
 
-  Map<String, String> _headers({bool json = true}) => {
+  Map<String, String> _headers() => {
         'Accept': 'application/json',
-        if (json) 'Content-Type': 'application/json; charset=utf-8',
-        if (hasToken) 'Authorization': 'Bearer $_token',
+        'Cookie': ?_sessionCookie,
       };
 
-  Future<dynamic> get(String path, {Map<String, dynamic>? query}) =>
+  /// Converte o corpo em campos de formulário (`bool` vira 1/0; `null` é omitido).
+  Map<String, String> _form(Map<String, Object?>? body) {
+    final fields = <String, String>{};
+    body?.forEach((key, value) {
+      if (value == null) return;
+      fields[key] = value is bool ? (value ? '1' : '0') : value.toString();
+    });
+    return fields;
+  }
+
+  Future<Map<String, dynamic>> get(String path, {Map<String, dynamic>? query}) =>
       _send(path, () => _http.get(_uri(path, query), headers: _headers()));
 
-  Future<dynamic> post(String path, {Object? body}) => _send(
-        path,
-        () => _http.post(_uri(path),
-            headers: _headers(), body: jsonEncode(body ?? const {})),
-      );
+  Future<Map<String, dynamic>> post(String path, {Map<String, Object?>? body}) =>
+      _send(path,
+          () => _http.post(_uri(path), headers: _headers(), body: _form(body)));
 
-  Future<dynamic> put(String path, {Object? body}) => _send(
-        path,
-        () => _http.put(_uri(path),
-            headers: _headers(), body: jsonEncode(body ?? const {})),
-      );
-
-  Future<dynamic> delete(String path, {Map<String, dynamic>? query}) =>
-      _send(path, () => _http.delete(_uri(path, query), headers: _headers()));
-
-  Future<dynamic> multipart(
+  /// Envia campos e, opcionalmente, arquivos (multipart). Usado no cadastro e
+  /// na edição de produto, com a foto.
+  Future<Map<String, dynamic>> multipart(
     String path, {
     Map<String, String> fields = const {},
     List<UploadFile> files = const [],
   }) {
     return _send(path, () async {
       final request = http.MultipartRequest('POST', _uri(path))
-        ..headers.addAll(_headers(json: false))
+        ..headers.addAll(_headers())
         ..fields.addAll(fields);
       for (final file in files) {
         request.files.add(http.MultipartFile.fromBytes(
@@ -111,7 +114,7 @@ class ApiClient {
     }, customTimeout: AppConfig.uploadTimeout);
   }
 
-  Future<dynamic> _send(
+  Future<Map<String, dynamic>> _send(
     String path,
     Future<http.Response> Function() request, {
     Duration? customTimeout,
@@ -139,10 +142,21 @@ class ApiClient {
         endpoint: path,
       );
     }
+    _captureSession(response);
     return _handle(path, response);
   }
 
-  dynamic _handle(String path, http.Response response) {
+  /// Guarda o `PHPSESSID` quando o servidor o envia (login, logout ou expiração).
+  void _captureSession(http.Response response) {
+    final raw = response.headers['set-cookie'];
+    if (raw == null) return;
+    final match = RegExp(r'PHPSESSID=([^;,\s]*)').firstMatch(raw);
+    if (match == null) return;
+    final value = match.group(1) ?? '';
+    _sessionCookie = value.isEmpty ? null : 'PHPSESSID=$value';
+  }
+
+  Map<String, dynamic> _handle(String path, http.Response response) {
     final status = response.statusCode;
     final decoded = _tryDecode(response);
     final isJson = decoded != null;
@@ -150,7 +164,7 @@ class ApiClient {
 
     if (status >= 200 && status < 300) {
       if (!isJson) {
-        if (response.body.trim().isEmpty) return null;
+        if (response.body.trim().isEmpty) return <String, dynamic>{};
         throw ApiException(
           ApiErrorType.invalidResponse,
           'Resposta inválida do servidor.',
@@ -158,18 +172,23 @@ class ApiClient {
           endpoint: path,
         );
       }
-      if (decoded is Map && decoded['sucesso'] == false) {
-        throw ApiException(
-          ApiErrorType.validation,
-          serverMessage ?? 'Não foi possível concluir a operação.',
-          statusCode: status,
-          endpoint: path,
-        );
+      if (decoded is Map<String, dynamic>) {
+        if (decoded['sucesso'] == false) {
+          throw ApiException(
+            ApiErrorType.validation,
+            serverMessage ?? 'Não foi possível concluir a operação.',
+            statusCode: status,
+            endpoint: path,
+          );
+        }
+        return decoded;
       }
-      if (decoded is Map && decoded.containsKey('dados')) {
-        return decoded['dados'];
-      }
-      return decoded;
+      throw ApiException(
+        ApiErrorType.invalidResponse,
+        'Resposta inválida do servidor.',
+        statusCode: status,
+        endpoint: path,
+      );
     }
 
     switch (status) {

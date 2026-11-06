@@ -127,7 +127,7 @@ class _CatalogViewState extends State<CatalogView> {
         ),
         Expanded(
           child: AsyncView<List<Product>>(
-            key: ValueKey('${query.toQuery()}'),
+            key: ValueKey('${query.toServerQuery()}'),
             feature: 'O catálogo de produtos',
             load: () => repo.list(query),
             isEmpty: (d) => d.isEmpty,

@@ -43,8 +43,12 @@ class AppUser {
   bool get isProducer => tipo == UserRole.produtor;
   bool get isBuyer => tipo == UserRole.comprador;
 
+  /// Aceita `tipo_acesso` (backend do site) e `tipo` (cache local).
+  /// Contas `admin` não entram pelo app.
   factory AppUser.fromJson(Map<String, dynamic> json) {
-    final role = UserRole.tryParse(Json.stringOrNull(json['tipo']));
+    final role = UserRole.tryParse(
+      Json.stringOrNull(json['tipo_acesso']) ?? Json.stringOrNull(json['tipo']),
+    );
     if (role == null) {
       throw const FormatException('Tipo de conta inválido.');
     }

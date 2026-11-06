@@ -72,22 +72,31 @@ void main() {
   });
 
   group('Modelos', () {
-    test('Product aceita números como string (PHP/MySQL)', () {
+    test('Product lê o formato do backend do site (números como string)', () {
       final p = Product.fromJson({
         'id': 7,
-        'produtor_id': '3',
+        'vendedor_id': 3,
+        'vendedor_nome': 'Davi',
         'nome': 'Tomate',
-        'categoria': 'Hortaliças',
+        'categoria': 'hortalicas',
         'preco': '8.90',
-        'quantidade': '4',
-        'disponivel': '1',
-        'imagens': ['https://img/1.jpg'],
+        'estoque': '4',
+        'descricao': '',
+        'status': 'ativo',
+        'imagem': 'uploads/produtos/abc.jpg',
       });
       expect(p.id, '7');
+      expect(p.produtorId, '3');
       expect(p.preco, 8.90);
       expect(p.categoria, ProductCategory.hortalicas);
       expect(p.stockLevel, StockLevel.low);
-      expect(p.coverImage, 'https://img/1.jpg');
+      expect(p.canBePurchased, isTrue);
+      expect(p.coverImage, 'https://buzzcodex.com.br/uploads/produtos/abc.jpg');
+    });
+
+    test('categoria desconhecida cai na categoria padrão', () {
+      final p = Product.fromJson({'id': 1, 'nome': 'X', 'categoria': 'bebidas', 'preco': 1});
+      expect(p.categoria, ProductCategory.fallback);
     });
 
     test('AppUser rejeita tipo de conta inválido', () {
@@ -98,17 +107,20 @@ void main() {
     test('Order calcula total e lê data MySQL', () {
       final o = Order.fromJson({
         'id': 10,
-        'status': 'em_preparacao',
-        'criado_em': '2026-03-11 08:30:00',
+        'status': 'preparo',
+        'data': '2026-03-11',
+        'papel': 'vendedor',
+        'contraparte': 'Davi',
+        'total': '44.50',
         'itens': [
-          {'produto_id': 1, 'nome': 'Tomate', 'quantidade': 5, 'preco_unitario': '8.90'},
+          {'nome': 'Tomate', 'quantidade': 5, 'preco_unitario': '8.90'},
         ],
-        'taxa_entrega': 5,
       });
       expect(o.status, OrderStatus.emPreparacao);
+      expect(o.compradorNome, 'Davi');
       expect(o.itemsTotal, closeTo(44.5, 0.001));
-      expect(o.grandTotal, closeTo(49.5, 0.001));
-      expect(o.criadoEm, DateTime(2026, 3, 11, 8, 30));
+      expect(o.grandTotal, closeTo(44.5, 0.001));
+      expect(o.criadoEm, DateTime(2026, 3, 11));
     });
 
     test('Negociação: quem pode responder', () {
@@ -177,9 +189,9 @@ void main() {
   });
 
   group('ApiClient', () {
-    test('extrai "dados" do envelope de sucesso', () async {
-      final data = await clientReturning(200, {'sucesso': true, 'dados': [1, 2]}).get('x.php');
-      expect(data, [1, 2]);
+    test('devolve o próprio objeto de sucesso (formato do backend do site)', () async {
+      final data = await clientReturning(200, {'sucesso': true, 'produtos': [1, 2]}).get('x.php');
+      expect(data['produtos'], [1, 2]);
     });
 
     test('sucesso=false vira erro de validação com a mensagem do servidor', () async {
@@ -222,18 +234,47 @@ void main() {
       expect(fired, isTrue);
     });
 
-    test('envia token Bearer', () async {
-      String? auth;
+    test('envia o cookie de sessão do servidor', () async {
+      String? cookie;
       final api = ApiClient(
         baseUrl: 'https://api.test/',
         httpClient: MockClient((req) async {
-          auth = req.headers['Authorization'];
-          expect(req.url.toString(), 'https://api.test/auth/me.php');
+          cookie = req.headers['Cookie'];
+          expect(req.url.toString(), 'https://api.test/auth/sessao.php');
           return http.Response('{"sucesso":true}', 200);
         }),
-      )..token = 'abc';
-      await api.get('/auth/me.php');
-      expect(auth, 'Bearer abc');
+      )..sessionCookie = 'PHPSESSID=abc';
+      await api.get('/auth/sessao.php');
+      expect(cookie, 'PHPSESSID=abc');
+    });
+
+    test('guarda o PHPSESSID enviado pelo login', () async {
+      final api = ApiClient(
+        baseUrl: 'https://api.test',
+        httpClient: MockClient((_) async => http.Response(
+              '{"sucesso":true}',
+              200,
+              headers: {'set-cookie': 'PHPSESSID=xyz123; path=/; HttpOnly'},
+            )),
+      );
+      await api.post('auth/login.php', body: {'email': 'a@a.com', 'senha': 'x'});
+      expect(api.sessionCookie, 'PHPSESSID=xyz123');
+    });
+
+    test('envia campos como formulário, não JSON', () async {
+      String? contentType;
+      String? body;
+      final api = ApiClient(
+        baseUrl: 'https://api.test',
+        httpClient: MockClient((req) async {
+          contentType = req.headers['content-type'];
+          body = req.body;
+          return http.Response('{"sucesso":true}', 200);
+        }),
+      );
+      await api.post('pedidos/criar.php', body: {'anuncio_id': 3, 'quantidade': 2, 'x': null});
+      expect(contentType, contains('application/x-www-form-urlencoded'));
+      expect(body, 'anuncio_id=3&quantidade=2');
     });
   });
 }

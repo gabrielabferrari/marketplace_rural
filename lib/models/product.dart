@@ -3,28 +3,30 @@ import 'package:flutter/material.dart';
 import '../core/config/app_config.dart';
 import 'json_utils.dart';
 
-/// Categorias de produto exibidas no app (taxonomia de interface).
+/// Categorias de produto: as mesmas do banco (`anuncios.categoria`) e do site.
+/// O `name` de cada item é o valor enviado e recebido do backend.
 enum ProductCategory {
   graos('Grãos', Icons.grass_rounded),
   hortalicas('Hortaliças', Icons.eco_rounded),
   frutas('Frutas', Icons.apple_rounded),
   carnes('Carnes', Icons.set_meal_rounded),
   laticinios('Laticínios', Icons.water_drop_rounded),
-  bebidas('Bebidas', Icons.local_drink_rounded),
-  organicos('Orgânicos', Icons.spa_rounded),
-  outros('Outros', Icons.more_horiz_rounded);
+  flores('Flores', Icons.local_florist_rounded);
 
   const ProductCategory(this.label, this.icon);
 
   final String label;
   final IconData icon;
 
+  /// Valor usado quando o servidor envia uma categoria desconhecida.
+  static const fallback = graos;
+
   static ProductCategory fromLabel(String? value) {
     final normalized = value?.toLowerCase().trim();
     for (final c in values) {
       if (c.label.toLowerCase() == normalized || c.name == normalized) return c;
     }
-    return outros;
+    return fallback;
   }
 }
 
@@ -42,7 +44,7 @@ class Product {
     required this.quantidade,
     this.produtorNome,
     this.descricao = '',
-    this.categoria = ProductCategory.outros,
+    this.categoria = ProductCategory.fallback,
     this.unidade = 'un.',
     this.localizacao,
     this.disponivel = true,
@@ -81,36 +83,36 @@ class Product {
 
   bool get canBePurchased => disponivel && quantidade > 0;
 
-  factory Product.fromJson(Map<String, dynamic> json) => Product(
-        id: Json.string(json['id']),
-        produtorId: Json.string(json['produtor_id'] ?? json['usuario_id']),
-        produtorNome: Json.stringOrNull(json['produtor_nome']),
-        nome: Json.string(json['nome']),
-        descricao: Json.string(json['descricao']),
-        categoria: ProductCategory.fromLabel(Json.stringOrNull(json['categoria'])),
-        preco: Json.number(json['preco']),
-        unidade: Json.string(json['unidade'], 'un.'),
-        quantidade: Json.number(json['quantidade']),
-        localizacao: Json.stringOrNull(json['localizacao']),
-        disponivel: Json.boolean(json['disponivel'], true),
-        imagens: Json.strings(json['imagens']),
-        estoqueMinimo: Json.numberOrNull(json['estoque_minimo']),
-        criadoEm: Json.date(json['criado_em']),
-        atualizadoEm: Json.date(json['atualizado_em']),
-      );
+  /// Formato do backend do site (`produtos/listar.php`): `id, nome, categoria,
+  /// preco, estoque, descricao, status, imagem, vendedor_id, vendedor_nome`.
+  /// `disponivel` vem em favoritos; sem ele, usa-se `status == 'ativo'`.
+  factory Product.fromJson(Map<String, dynamic> json) {
+    final status = Json.stringOrNull(json['status']) ?? 'ativo';
+    final imagem = Json.stringOrNull(json['imagem']);
+    return Product(
+      id: Json.string(json['id']),
+      produtorId: Json.string(json['vendedor_id']),
+      produtorNome: Json.stringOrNull(json['vendedor_nome']),
+      nome: Json.string(json['nome']),
+      descricao: Json.string(json['descricao']),
+      categoria: ProductCategory.fromLabel(Json.stringOrNull(json['categoria'])),
+      preco: Json.number(json['preco']),
+      unidade: Json.string(json['unidade'], 'un.'),
+      quantidade: Json.number(json['estoque']),
+      disponivel: Json.boolean(json['disponivel'], status == 'ativo'),
+      imagens: imagem == null ? const [] : [AppConfig.absoluteUrl(imagem)],
+    );
+  }
 
-  /// Corpo enviado para cadastro/edição.
-  Map<String, dynamic> toRequest() => {
+  /// Campos do formulário de `produtos/cadastrar.php` e `produtos/editar.php`.
+  /// A foto é enviada à parte, como arquivo multipart.
+  Map<String, String> toRequest() => {
         if (id.isNotEmpty) 'id': id,
         'nome': nome,
         'descricao': descricao,
-        'categoria': categoria.label,
-        'preco': preco,
-        'unidade': unidade,
-        'quantidade': quantidade,
-        'localizacao': localizacao,
-        'disponivel': disponivel,
-        'imagens': imagens,
+        'categoria': categoria.name,
+        'preco': preco.toStringAsFixed(2),
+        'estoque': quantidade.round().toString(),
       };
 
   Product copyWith({

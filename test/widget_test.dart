@@ -12,30 +12,44 @@ import 'package:marketplace_rural/core/utils/local_preferences.dart';
 import 'package:marketplace_rural/screens/shell/app_menu.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Servidor falso: responde login/cadastro com sucesso e 501 para o resto,
-/// reproduzindo o estado atual da API.
+/// Servidor falso no formato do backend do site: login abre a sessão
+/// (cookie PHPSESSID) e `auth/sessao.php` devolve o usuário; o resto responde 501.
 ApiClient fakeApi({String role = 'comprador'}) {
   return ApiClient(
     baseUrl: 'https://api.test',
     httpClient: MockClient((req) async {
       final path = req.url.path;
-      if (path.endsWith('auth/login.php') || path.endsWith('auth/cadastro.php')) {
-        final body = jsonDecode(req.body) as Map<String, dynamic>;
+      if (path.endsWith('auth/login.php')) {
+        return http.Response(
+          jsonEncode({'sucesso': true, 'redirect': 'inicio.html'}),
+          200,
+          headers: {
+            'content-type': 'application/json',
+            'set-cookie': 'PHPSESSID=tok; path=/; HttpOnly',
+          },
+        );
+      }
+      if (path.endsWith('auth/sessao.php')) {
         return http.Response(
           jsonEncode({
             'sucesso': true,
-            'dados': {
-              'token': 'tok',
-              'usuario': {
-                'id': 9,
-                'nome': body['nome'] ?? 'Usuária Teste',
-                'email': body['email'],
-                'telefone': '(19) 99999-9999',
-                'tipo': body['tipo'] ?? role,
-              },
+            'usuario': {
+              'id': 9,
+              'nome': 'Usuária Teste',
+              'email': 'teste@exemplo.com',
+              'telefone': '(19) 99999-9999',
+              'cidade': 'Arceburgo',
+              'tipo_acesso': role,
             },
           }),
           200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (path.endsWith('auth/cadastro.php')) {
+        return http.Response(
+          jsonEncode({'sucesso': true, 'mensagem': 'Cadastro realizado com sucesso!'}),
+          201,
           headers: {'content-type': 'application/json'},
         );
       }
@@ -51,7 +65,7 @@ Future<LocalPreferences> prefsWith([Map<String, Object> values = const {}]) asyn
 }
 
 Map<String, Object> loggedAs(String role) => {
-      'session_token': 'tok',
+      'session_cookie': 'PHPSESSID=tok',
       'session_user': jsonEncode({
         'id': '9',
         'nome': 'Usuária Teste',
@@ -102,7 +116,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Usuária'), findsWidgets);
-    expect(prefs.token, 'tok');
+    expect(prefs.sessionCookie, 'PHPSESSID=tok');
   });
 
   testWidgets('cadastro exige escolher o tipo de conta', (tester) async {
@@ -117,7 +131,7 @@ void main() {
   });
 
   testWidgets('menu do produtor mostra Gestão de fazenda e Estoque', (tester) async {
-    await pumpApp(tester, await prefsWith(loggedAs('produtor')), fakeApi());
+    await pumpApp(tester, await prefsWith(loggedAs('produtor')), fakeApi(role: 'produtor'));
     await openDrawer(tester);
 
     expect(find.text('Gestão de fazenda'), findsOneWidget);
@@ -177,7 +191,7 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
         final prefs = await prefsWith({...loggedAs(role), 'pref_region': 'Mococa - SP'});
-        await tester.pumpWidget(MarketplaceRuralApp(prefs: prefs, apiClient: fakeApi()));
+        await tester.pumpWidget(MarketplaceRuralApp(prefs: prefs, apiClient: fakeApi(role: role)));
         await tester.pumpAndSettle();
 
         final sections = role == 'produtor'
@@ -211,6 +225,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Acesse sua conta'), findsOneWidget);
-    expect(prefs.token, isNull);
+    expect(prefs.sessionCookie, isNull);
   });
 }

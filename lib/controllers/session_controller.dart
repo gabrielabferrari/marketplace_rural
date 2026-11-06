@@ -12,8 +12,8 @@ enum SessionStatus { loading, unauthenticated, authenticated }
 
 /// Estado de autenticação do aplicativo.
 ///
-/// O token é emitido pela API PHP e enviado em todas as requisições.
-/// Nenhuma senha é guardada no dispositivo.
+/// A sessão é o cookie `PHPSESSID` emitido pelo backend do site; ele é
+/// enviado em todas as requisições. Nenhuma senha é guardada no dispositivo.
 class SessionController extends ChangeNotifier {
   SessionController({
     required this._api,
@@ -30,12 +30,13 @@ class SessionController extends ChangeNotifier {
   SessionStatus _status = SessionStatus.loading;
   AppUser? _user;
   bool _expired = false;
+  bool _persisted = true;
 
   SessionStatus get status => _status;
   AppUser? get user => _user;
   bool get isAuthenticated => _status == SessionStatus.authenticated;
 
-  /// Indica que a última sessão foi encerrada pelo servidor (token inválido).
+  /// Indica que a última sessão foi encerrada pelo servidor (sessão expirada).
   bool consumeExpiredFlag() {
     final value = _expired;
     _expired = false;
@@ -43,17 +44,17 @@ class SessionController extends ChangeNotifier {
   }
 
   /// Restaura a sessão salva (de forma síncrona, antes do primeiro build) e
-  /// valida o token no servidor em segundo plano.
+  /// valida a sessão no servidor em segundo plano.
   void restore() {
-    final token = _prefs.token;
+    final cookie = _prefs.sessionCookie;
     final cached = _decodeUser(_prefs.cachedUser);
-    if (token == null || cached == null) {
+    if (cookie == null || cached == null) {
       _prefs.clearSession();
       _status = SessionStatus.unauthenticated;
       _user = null;
       return;
     }
-    _api.token = token;
+    _api.sessionCookie = cookie;
     _status = SessionStatus.authenticated;
     _user = cached;
     refreshUser();
@@ -73,8 +74,8 @@ class SessionController extends ChangeNotifier {
   /// [remember] = false mantém a sessão apenas em memória: ao fechar o app,
   /// será necessário entrar novamente.
   Future<void> login(String email, String senha, {bool remember = true}) async {
-    final result = await _auth.login(email: email, senha: senha);
-    await _start(result, persist: remember);
+    final user = await _auth.login(email: email, senha: senha);
+    await _start(user, persist: remember);
   }
 
   Future<void> register({
@@ -85,7 +86,7 @@ class SessionController extends ChangeNotifier {
     required String confirmarSenha,
     required UserRole tipo,
   }) async {
-    final result = await _auth.register(
+    await _auth.register(
       nome: nome,
       email: email,
       telefone: telefone,
@@ -93,38 +94,41 @@ class SessionController extends ChangeNotifier {
       confirmarSenha: confirmarSenha,
       tipo: tipo,
     );
-    await _start(result);
+    // O cadastro não abre sessão no servidor: entra com as mesmas credenciais.
+    await login(email, senha);
   }
 
   Future<void> updateProfile({required String nome, required String telefone}) async {
-    final updated = await _auth.updateProfile(nome: nome, telefone: telefone);
+    final updated = await _auth.updateProfile(
+      nome: nome,
+      telefone: telefone,
+      cidade: _user?.cidade ?? '',
+    );
     await _persistUser(updated);
   }
 
-  Future<void> changePassword({required String senhaAtual, required String novaSenha}) async {
-    final token = await _auth.changePassword(senhaAtual: senhaAtual, novaSenha: novaSenha);
-    if (token == null || _user == null) return;
-    _api.token = token;
-    if (_persisted) await _prefs.saveSession(token, jsonEncode(_user!.toJson()));
-  }
+  Future<void> changePassword({required String senhaAtual, required String novaSenha}) =>
+      _auth.changePassword(senhaAtual: senhaAtual, novaSenha: novaSenha);
 
   Future<void> logout() async {
     await _auth.logout();
     await _clear();
   }
 
-  Future<void> _start(AuthResult result, {bool persist = true}) async {
-    _api.token = result.token;
+  Future<void> _start(AppUser user, {bool persist = true}) async {
+    final cookie = _api.sessionCookie;
+    if (cookie == null) {
+      throw const ApiException(ApiErrorType.invalidResponse,
+          'O servidor não iniciou a sessão. Tente entrar novamente.');
+    }
     _persisted = persist;
     if (persist) {
-      await _prefs.saveSession(result.token, jsonEncode(result.user.toJson()));
+      await _prefs.saveSession(cookie, jsonEncode(user.toJson()));
     } else {
       await _prefs.clearSession();
     }
-    _set(SessionStatus.authenticated, result.user);
+    _set(SessionStatus.authenticated, user);
   }
-
-  bool _persisted = true;
 
   Future<void> _persistUser(AppUser user) async {
     if (!isAuthenticated) return;
@@ -140,7 +144,7 @@ class SessionController extends ChangeNotifier {
   }
 
   Future<void> _clear() async {
-    _api.token = null;
+    _api.sessionCookie = null;
     await _prefs.clearSession();
     _set(SessionStatus.unauthenticated, null);
   }
